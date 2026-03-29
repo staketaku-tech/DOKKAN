@@ -16,22 +16,14 @@ POTENTIAL_ATK_DATA = {
     "高成長 (力・技)": [2000, 4100, 4400, 4500, 5400],
     "標準成長 (速・知・体)": [2000, 3700, 4000, 4100, 5000],
 }
-
-# ★ 気力ボーナスの選択肢を分離して拡張
 ULTRA_KI_MULTI_OPTIONS = {
-    "0倍 (URキャラ用)": 0,
-    "1.4倍 (通常、イベ産)": 140,
-    "1.5倍 (フェスUR等)": 150,
-    "1.6倍 (高倍率LR通常等)": 160,
-    "2.0倍 (LR最大)": 200
+    "0倍 (URキャラ用)": 0, "1.4倍 (通常、イベ産)": 140, "1.5倍 (フェスUR等)": 150, 
+    "1.6倍 (高倍率LR通常等)": 160, "2.0倍 (LR最大)": 200
 }
 NORMAL_KI_MULTI_OPTIONS = {
-    "1.4倍 (通常、イベ産)": 140,
-    "1.5倍 (フェスUR等)": 150,
-    "1.6倍 (高倍率LR通常等)": 160,
-    "2.0倍 (LR最大)": 200
+    "1.4倍 (通常、イベ産)": 140, "1.5倍 (フェスUR等)": 150, 
+    "1.6倍 (高倍率LR通常等)": 160, "2.0倍 (LR最大)": 200
 }
-
 SA_BASE_OPTIONS = {
     "極大Lv20 (4.25倍)": 425, "極大Lv25 (4.5倍)": 450, "超絶特大Lv10 (5.05倍)": 505, 
     "超極大Lv20 (5.7倍)": 570, "超極大Lv25 (6.2倍)": 620, "超絶特大Lv15 (6.3倍)": 630, "究極Lv20 (8.4倍)": 840
@@ -48,7 +40,6 @@ def get_atk_growth_type(element_str):
     if "力" in element_str or "技" in element_str: return "高成長 (力・技)"
     else: return "標準成長 (速・知・体)"
 
-# --- 計算ロジック ---
 def calculate_dokkan_def(base, ls, supp_mem, add_p, field, active, mult_p, link, sa_effect):
     val = math.floor(base * (1 + ls / 100))
     val = math.floor(val * (1 + supp_mem / 100))
@@ -184,6 +175,13 @@ with tab1:
     with col7: enemy_element = st.selectbox("属性相性", options=["有利", "等倍", "不利"], index=1, key="d_eelem")
     with col8: survival_dmg_man = st.number_input("耐久ライン (万)", min_value=0, value=80, step=10, key="d_surv")
     
+    # ★ 敵の会心設定を追加
+    with st.expander("💥 敵の特殊行動 (会心) 設定"):
+        crit_active = st.checkbox("敵が会心を発動する", value=False, key="d_ecrit")
+        c_ec1, c_ec2 = st.columns(2)
+        with c_ec1: ecrit_atk_up = st.number_input("敵のATKアップ(%)", min_value=0, value=50, step=10, key="d_ec_atk")
+        with c_ec2: ecrit_def_down = st.number_input("こちらのDEFダウン(%)", min_value=0, max_value=100, value=50, step=10, key="d_ec_def")
+
     enemy_atk = enemy_atk_man * 10000
     survival_dmg = survival_dmg_man * 10000
 
@@ -191,37 +189,45 @@ with tab1:
         user_class = element_def[0]
         is_same_class = (user_class == enemy_class[0])
         
-        if guard_active:
-            base_multi, guard_multi = 0.8, 0.5
-            guard_str = "0.8 × 0.5"
+        if enemy_element == "有利":
+            base_multi = 0.9 if is_same_class else 1.0
+        elif enemy_element == "等倍":
+            base_multi = 1.0 if is_same_class else 1.15
         else:
-            if enemy_element == "有利":
-                base_multi = 0.9 if is_same_class else 1.0
-                guard_multi = 0.5
-                guard_str = "0.5"
-            elif enemy_element == "等倍":
-                base_multi = 1.0 if is_same_class else 1.15
-                guard_multi = 1.0
-                guard_str = "なし"
-            else:
-                base_multi = 1.25 if is_same_class else 1.5
-                guard_multi = 1.0
-                guard_str = "なし"
+            base_multi = 1.25 if is_same_class else 1.5
 
+        if guard_active:
+            g_m1, g_m2 = 0.8, 0.5
+            guard_str = "0.8 × 0.5"
+        elif enemy_element == "有利":
+            g_m1, g_m2 = 1.0, 0.5
+            guard_str = "0.5"
+        else:
+            g_m1, g_m2 = 1.0, 1.0
+            guard_str = "なし"
+
+        # ★ 限界ATKの計算ロジックにも会心補正を反映
         def calc_max_tolerable_atk(defense, dr, limit):
             if dr >= 100: return "∞"
-            target_after_def = limit / (base_multi * guard_multi)
-            return math.floor((target_after_def + defense) / (1 - dr / 100.0))
+            eff_defense = math.floor(defense * (1 - ecrit_def_down / 100.0)) if crit_active else defense
+            target_after_def = limit / (base_multi * g_m1 * g_m2)
+            req_eff_atk = (target_after_def + eff_defense) / (1 - dr / 100.0)
+            req_base_atk = req_eff_atk / (1 + ecrit_atk_up / 100.0) if crit_active else req_eff_atk
+            return math.floor(req_base_atk)
 
-        st.info(f"💡 【内部計算順序】 ((敵ATK × 軽減 - **自身の最終DEF**) × 相性 {base_multi} × ガード {guard_str}")
+        st.info(f"💡 【内部計算順序】 ((敵ATK{'[会心UP]' if crit_active else ''} × 軽減 - **自身の最終DEF{'[会心DOWN]' if crit_active else ''}**) × 相性 {base_multi} × ガード {guard_str}")
 
         buff_queue_def = []
         results_def = []
         
+        # 行動前の処理
         val0 = calculate_dokkan_def(base_def, def_ls, def_mem, def_add, def_field, def_act, def_mult, def_link, 0)
-        reduced0 = math.floor(enemy_atk * (1 - dmg_reduction_before / 100))
-        dmg_after_def0 = max(0, reduced0 - val0)
-        dmg0 = math.floor(math.floor(dmg_after_def0 * base_multi) * guard_multi)
+        eff_enemy_atk0 = math.floor(enemy_atk * (1 + ecrit_atk_up / 100.0)) if crit_active else enemy_atk
+        eff_val0 = math.floor(val0 * (1 - ecrit_def_down / 100.0)) if crit_active else val0
+        
+        reduced0 = math.floor(eff_enemy_atk0 * (1 - dmg_reduction_before / 100))
+        dmg_after_def0 = max(0, reduced0 - eff_val0)
+        dmg0 = math.floor(math.floor(math.floor(dmg_after_def0 * base_multi) * g_m1) * g_m2)
         
         results_def.append({
             "顔出し回数": "0. 行動前(先制)", 
@@ -248,9 +254,13 @@ with tab1:
                 
             val = calculate_dokkan_def(base_def, def_ls, def_mem, def_add, def_field, def_act, def_mult, def_link, active_buffs + total_effect_this_turn)
             
-            reduced = math.floor(enemy_atk * (1 - dmg_reduction_after / 100))
-            dmg_after_def = max(0, reduced - val)
-            dmg = math.floor(math.floor(dmg_after_def * base_multi) * guard_multi)
+            # ★ 敵会心の補正を適用
+            eff_enemy_atk = math.floor(enemy_atk * (1 + ecrit_atk_up / 100.0)) if crit_active else enemy_atk
+            eff_val = math.floor(val * (1 - ecrit_def_down / 100.0)) if crit_active else val
+            
+            reduced = math.floor(eff_enemy_atk * (1 - dmg_reduction_after / 100))
+            dmg_after_def = max(0, reduced - eff_val)
+            dmg = math.floor(math.floor(math.floor(dmg_after_def * base_multi) * g_m1) * g_m2)
             
             results_def.append({
                 "顔出し回数": f"{i}. 登場{i}回目(行動後)", 
@@ -290,7 +300,7 @@ with tab1:
             st.dataframe(df_def.style.format(formatter))
 
 # ==========================================
-# タブ2: ATK (表示火力)
+# タブ2: ATK (表示火力) - 変更なし
 # ==========================================
 with tab2:
     st.markdown("### 👤 キャラクター設定")
@@ -363,7 +373,6 @@ with tab2:
 
     with colD:
         st.caption("■ 気力ボーナスとその他の火力補正")
-        # ★ 気力ボーナスの入力欄を2つに拡張
         c_ki1, c_ki2 = st.columns(2)
         with c_ki1:
             u_ki_choice = st.selectbox("気力ボーナス (超/EX必殺用)", options=list(ULTRA_KI_MULTI_OPTIONS.keys()), index=4, key="a_uki")
@@ -395,7 +404,6 @@ with tab2:
         buff_queue_atk = []
         results_atk = []
         
-        # アクティブはLRなら超必殺の倍率、UR(0倍設定)なら通常必殺の倍率を使用
         active_ki_multi = ultra_ki_multi if ultra_ki_multi > 0 else normal_ki_multi
 
         for i in range(1, atk_turns + 1):
@@ -416,7 +424,6 @@ with tab2:
                 if atk_mult_sa_on > 0:
                     atk_mult += atk_mult_sa_on
 
-            # EX必殺技 (LRなら超必殺の倍率、URなら通常必殺の倍率で計算)
             ex_ki_multi_to_use = ultra_ki_multi if ultra_ki_multi > 0 else normal_ki_multi
             for e in range(atk_ex_pt):
                 if e == 0:
@@ -425,7 +432,6 @@ with tab2:
                 current_buff_accumulator += atk_ex_sa
                 buff_queue_atk.append((turn_game, atk_ex_dur, atk_ex_sa))
                 
-            # 超必殺技
             for u in range(atk_ultra_pt):
                 if u == 0:
                     total_multi = atk_ultra_base + (sa_potential_lv * 5) + current_buff_accumulator + atk_ultra_sa
@@ -433,7 +439,6 @@ with tab2:
                 current_buff_accumulator += atk_ultra_sa
                 buff_queue_atk.append((turn_game, atk_ultra_dur, atk_ultra_sa))
                 
-            # 通常必殺技 (追撃など)
             for n in range(atk_normal_pt):
                 if n == 0:
                     total_multi = atk_normal_base + (sa_potential_lv * 5) + current_buff_accumulator + atk_normal_sa
@@ -506,6 +511,13 @@ with tab3:
 
         p_guard = st.checkbox("🛡️ 全属性ガード発動", value=False, key="p_g_act")
         p_dr = st.number_input("適用されるダメージ軽減率 (%)", min_value=0, max_value=100, value=0, step=10, key="p_dr")
+        
+        # ★ 実戦タブにも敵の会心設定を追加
+        with st.expander("💥 敵の特殊行動 (会心) 設定"):
+            p_crit = st.checkbox("敵が会心を発動する", value=False, key="p_ecrit")
+            c_pc1, c_pc2 = st.columns(2)
+            with c_pc1: p_ecrit_atk_up = st.number_input("敵のATKアップ(%)", min_value=0, value=50, step=10, key="p_ec_atk")
+            with c_pc2: p_ecrit_def_down = st.number_input("こちらのDEFダウン(%)", min_value=0, max_value=100, value=50, step=10, key="p_ec_def")
 
     if st.button("🔥 最終DEF ＆ 被ダメージを計算", type="primary", use_container_width=True, key="btn_prac"):
         val_def = math.floor(current_def * (1 + (p_add_c + p_add_u) / 100) / (1 + p_add_c / 100))
@@ -513,25 +525,31 @@ with tab3:
         final_def = math.floor(val_def * (1 + (p_sa_p + p_sa_t) / 100) / (1 + p_sa_p / 100))
 
         if p_guard:
-            actual_base_multi, guard_multi = 0.8, 0.5
+            g_m1, g_m2 = 0.8, 0.5
             guard_str = "0.8 × 0.5"
         elif "有利" in p_type_choice:
-            actual_base_multi, guard_multi = p_base_multi, 0.5
+            g_m1, g_m2 = 1.0, 0.5
             guard_str = "0.5"
         else:
-            actual_base_multi, guard_multi = p_base_multi, 1.0
+            g_m1, g_m2 = 1.0, 1.0
             guard_str = "なし"
 
-        reduced = math.floor(p_enemy_atk * (1 - p_dr / 100))
-        dmg_after_def = max(0, reduced - final_def)
-        damage = math.floor(math.floor(dmg_after_def * actual_base_multi) * guard_multi)
+        # ★ 敵会心の補正を適用
+        eff_p_enemy_atk = math.floor(p_enemy_atk * (1 + p_ecrit_atk_up / 100.0)) if p_crit else p_enemy_atk
+        eff_final_def = math.floor(final_def * (1 - p_ecrit_def_down / 100.0)) if p_crit else final_def
+
+        reduced = math.floor(eff_p_enemy_atk * (1 - p_dr / 100))
+        dmg_after_def = max(0, reduced - eff_final_def)
+        damage = math.floor(math.floor(math.floor(dmg_after_def * p_base_multi) * g_m1) * g_m2)
 
         res1, res2 = st.columns(2)
-        with res1: st.success(f"🛡️ **最終DEF: {final_def:,}**")
+        with res1: 
+            st.success(f"🛡️ **最終DEF: {final_def:,}**")
+            if p_crit: st.warning(f"⚠️ 会心時 適用の実質DEF: {eff_final_def:,}")
         with res2:
             if damage == 0: st.info("💥 **被ダメージ: 0 (完封)**")
             else: st.error(f"💥 **被ダメージ: {damage:,}**")
-        st.caption(f"※内部被ダメ計算: (敵ATK {p_enemy_atk:,} × 軽減 {100 - p_dr}% - 最終DEF {final_def:,}) × 相性 {actual_base_multi} × ガード {guard_str}")
+        st.caption(f"※内部被ダメ計算: (敵ATK {eff_p_enemy_atk:,} × 軽減 {100 - p_dr}% - 実質DEF {eff_final_def:,}) × 相性 {p_base_multi} × ガード {guard_str}")
 
 # ==========================================
 # タブ4: 検証ツール (敵ATK逆算)
@@ -561,6 +579,13 @@ with tab4:
         with cr1: target_def = st.number_input("受けた時点の自身のDEF", min_value=0, value=500000, step=10000, key="r_def")
         with cr2: target_dr = st.number_input("受けた時点の軽減率 (%)", min_value=0, max_value=99, value=0, step=10, key="r_dr")
 
+    # ★ 逆算タブにも敵の会心設定を追加
+    with st.expander("💥 受けた攻撃が会心だった場合"):
+        r_crit = st.checkbox("受けた攻撃は会心だった", value=False, key="r_ecrit")
+        c_rc1, c_rc2 = st.columns(2)
+        with c_rc1: r_ecrit_atk_up = st.number_input("敵のATKアップ(%)", min_value=0, value=50, step=10, key="r_ec_atk")
+        with c_rc2: r_ecrit_def_down = st.number_input("こちらのDEFダウン(%)", min_value=0, max_value=100, value=50, step=10, key="r_ec_def")
+
     if st.button("敵のATKを逆算する", type="secondary", use_container_width=True, key="btn_rev"):
         if rev_actual_dmg == 0:
             st.warning("⚠️ ダメージが0（完封）の場合、敵のATKは特定できません。")
@@ -588,8 +613,18 @@ with tab4:
                 target_after_def = target_after_def / 0.5
             target_after_def = target_after_def / rev_base_m
 
-            target_incoming = target_after_def + target_def
-            estimated_atk = target_incoming / (1 - target_dr / 100.0)
+            # ★ 逆算にも敵会心の補正を適用
+            eff_target_def = math.floor(target_def * (1 - r_ecrit_def_down / 100.0)) if r_crit else target_def
+            target_incoming = target_after_def + eff_target_def
+            eff_estimated_atk = target_incoming / (1 - target_dr / 100.0)
+            
+            if r_crit:
+                estimated_atk = eff_estimated_atk / (1 + r_ecrit_atk_up / 100.0)
+            else:
+                estimated_atk = eff_estimated_atk
 
             st.success(f"🎯 推測される敵のATK: **約 {int(estimated_atk):,} (約 {estimated_atk / 10000:.1f} 万)**")
-            st.info(f"※参照した属性相性: 敵【{e_class}/{e_element}】/ ガード【{'あり' if g_active else 'なし'}】 (DEFタブの設定が反映されています)")
+            if r_crit:
+                st.info(f"※参照した属性相性: 敵【{e_class}/{e_element}】/ ガード【{'あり' if g_active else 'なし'}】 / 会心【あり】")
+            else:
+                st.info(f"※参照した属性相性: 敵【{e_class}/{e_element}】/ ガード【{'あり' if g_active else 'なし'}】 (DEFタブの設定が反映されています)")
