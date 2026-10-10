@@ -1,0 +1,5 @@
+.deps/
+__pycache__/
+*.pyc
+.preview*.log
+.publish/
